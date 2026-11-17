@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atwyaml"
-version = "0.1.0"
-description = "Author and score YAML prompt-injection tasks from chat-box captures"
+version = "0.2.0"
+description = "Prepare adversarial YAML tasks and review manual agent captures offline"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["PyYAML>=6"]
