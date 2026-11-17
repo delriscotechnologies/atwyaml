@@ -65,9 +65,9 @@ atwyaml capture runs/v3-plan-001 tasks/v3/capture.json --model MODEL_NAME --mode
 atwyaml report runs/v3-evidence --out runs/v3-review-001.md
 ```
 
-Replace `MODEL_NAME`/`MODEL_VERSION` with deployment labels; use `fictional-agent`/`fixture-v1` for the synthetic check, or `unknown` for an undisclosed version. The sample gives `attempt_observed` and ASR `0/1` in a fresh store. Omit `--out` to print the report. Its conditions, steps, observations, checks and cohort summaries support manual reproduction and review.
+Replace `MODEL_NAME`/`MODEL_VERSION` with deployment labels; use `fictional-agent`/`fixture-v1` for the synthetic check, or `unknown` for an undisclosed version. The sample gives `attempt_observed` and ASR `0/1` in a fresh store. Omit `--out` to print the report. Its conditions, steps, observations, checks and cohort summaries support manual reproduction and review. Each cohort includes per-variant counts and ASR; controls never enter the adversarial denominator.
 
-Each import creates a new record with the plan, model labels, original capture and grading result. Import each trial once. Edit the scenario or variant and use a new plan directory for another version; content hashes distinguish snapshots. Existing outputs are never replaced. Reports verify checksums and replay grading; `call_indices`/`effect_indices` refer to the original phase lists.
+Each import creates a new record with the plan, model labels, original capture and grading result. Import each trial once. An import refuses a store that contains unreadable, incompatible or misnamed records; fix or separate that store before continuing. Edit the scenario or variant and use a new plan directory for another version; content hashes distinguish snapshots. Existing outputs are never replaced. Reports verify checksums and replay grading; `call_indices`/`effect_indices` refer to the original phase lists. Invalid input names the file and field that needs correction.
 
 ## Limits and compatibility
 

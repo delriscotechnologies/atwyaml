@@ -1,5 +1,7 @@
 """Four commands for operator-controlled tests; no agent or model execution."""
 import argparse
+from contextlib import contextmanager
+from pathlib import Path
 
 import yaml
 
@@ -33,6 +35,14 @@ forbidden:
 """
 
 
+@contextmanager
+def context(label):
+    try:
+        yield
+    except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
+        raise ValueError(f"{label}: {exc}") from exc
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="atwyaml", description="Prepare manual agent tests and review operator-supplied observations.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -54,17 +64,26 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
-            core.bundle(args.directory, {"task.yaml": TEMPLATE})
+            if Path(args.directory).exists():
+                raise ValueError(f"directory {args.directory}: already exists; choose a new path")
+            with context(f"directory {args.directory}"):
+                core.bundle(args.directory, {"task.yaml": TEMPLATE})
         elif args.command == "prepare":
-            plan = core.sealed({"version": core.VERSION, "scenario": core.read(args.task), "variant": args.variant})
-            _, selected = core.selection(plan)
-            core.bundle(args.directory, {"plan.json": core.dump(plan), "payload.txt": selected["payload"]})
+            with context(f"task {args.task}"):
+                plan = core.sealed({"version": core.VERSION, "scenario": core.read(args.task), "variant": args.variant})
+                _, selected = core.selection(plan)
+            with context(f"directory {args.directory}"):
+                core.bundle(args.directory, {"plan.json": core.dump(plan), "payload.txt": selected["payload"]})
         elif args.command == "capture":
-            print(core.dump(core.capture(args.directory, args.source, args.model, args.model_version, args.store)))
+            label = f"plan {args.directory}; source {args.source}; store {args.store}"
+            with context(label):
+                print(core.dump(core.capture(args.directory, args.source, args.model, args.model_version, args.store)))
         else:
-            contents = core.report(args.store)
+            with context(f"store {args.store}"):
+                contents = core.report(args.store)
             if args.out:
-                core.write(args.out, contents)
+                with context(f"output {args.out}"):
+                    core.write(args.out, contents)
             else:
                 print(contents, end="")
         return 0
