@@ -2,10 +2,12 @@ import copy
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -195,7 +197,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_variants_are_enumerated_not_generated(self):
         data = parse_yaml(starter("budget", "it")["variants.yaml"])
-        self.assertEqual([v["kind"] for v in validate_variants(data)], ["adversarial", "adversarial", "control"])
+        self.assertEqual([v["kind"] for v in validate_variants(data)], ["adversarial", "control"])
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "variants.yaml"
             path.write_text('variants:\n  - {id: a, payload: x}\n', encoding="utf-8")
@@ -280,6 +282,55 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual((self.plan / "payload.txt").read_text(), selected["payload"])
         self.assertEqual(selected["payload"], scenario["injection"]["payload"])
         self.assertIn("No assistant is invoked", (self.plan / "review-brief.md").read_text())
+
+    def test_readme_capture_works_with_generated_templates(self):
+        readme = Path(__file__).resolve().parents[2] / "README.md"
+        contents = re.search(r"```json\n(.*?)\n```", readme.read_text(encoding="utf-8"), re.S).group(1)
+        self.source.write_text(contents, encoding="utf-8")
+        _, result = self.ingest()
+        self.assertEqual(result["verdict"], "attempt_observed")
+        records = load_store(self.store)
+        self.assertEqual(records[0]["capture_text"], contents)
+        self.assertEqual(cohort_scores(records)["cohorts"][0]["asr"], "0/1")
+        self.assertIn('"status": "blocked"', report(records))
+
+    def test_failed_write_removes_partial_output(self):
+        path = self.root / "partial.json"
+        stream = path.open("xb")
+
+        class BrokenWriter:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                stream.close()
+
+            def write(self, raw):
+                stream.write(raw[:3])
+                raise OSError("simulated write failure")
+
+        with patch.object(Path, "open", return_value=BrokenWriter()):
+            with self.assertRaisesRegex(OSError, "simulated write failure"):
+                write_new(path, "a complete result")
+        self.assertFalse(path.exists())
+
+    def test_import_reserves_store_capacity_before_writing(self):
+        path, _ = self.ingest()
+        original = path.read_bytes()
+        with patch("atwyaml.workspace.MAX_ITEMS", 1):
+            with self.assertRaisesRegex(ValueError, "directory entries"):
+                self.ingest()
+        with patch("atwyaml.workspace.MAX_STORE_BYTES", len(original)):
+            with self.assertRaisesRegex(ValueError, "aggregate size"):
+                self.ingest()
+        note = self.store / "note.txt"
+        note.write_text("retain this too", encoding="utf-8")
+        with patch("atwyaml.workspace.MAX_ITEMS", 2):
+            with self.assertRaisesRegex(ValueError, "directory entries"):
+                self.ingest()
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(note.read_text(), "retain this too")
+        self.assertEqual(len(load_store(self.store)), 1)
 
     def test_preparation_preserves_old_sources_and_rejects_overwrite(self):
         original = (self.plan / "task.yaml").read_bytes()

@@ -25,8 +25,14 @@ def write_new(path, contents, limit=MAX_BYTES):
     raw = contents.encode("utf-8")
     if len(raw) > limit:
         raise ValueError(f"output exceeds {limit} bytes")
-    with Path(path).open("xb") as stream:
-        stream.write(raw)
+    path = Path(path)
+    stream = path.open("xb")
+    try:
+        with stream:
+            stream.write(raw)
+    except OSError:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def new_directory(path, files):
@@ -130,6 +136,7 @@ def capture(plan_dir, source, model_name, model_version, store):
         raise ValueError("review record exceeds file size limit")
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
+    _store_files(store, extra_bytes=len(serialized.encode("utf-8")))
     path = store / f"{record['run_id']}.json"
     write_new(path, serialized)
     return path, result
@@ -176,30 +183,37 @@ def verify_record(record):
     return result
 
 
-def load_store(directory):
+def _store_files(directory, extra_bytes=0):
+    """Read bounded files, reserving capacity for a prospective new record."""
     directory = Path(directory)
     if not directory.is_dir():
         raise ValueError("store must be an existing directory")
-    records, seen, total = [], set(), 0
-    paths = []
+    files, total = [], extra_bytes
+    if total > MAX_STORE_BYTES:
+        raise ValueError("store exceeds aggregate size limit")
+    entry_limit = MAX_ITEMS - (1 if extra_bytes else 0)
     for index, path in enumerate(directory.iterdir()):
-        if index >= MAX_ITEMS:
+        if index >= entry_limit:
             raise ValueError("store exceeds 1000 directory entries")
-        paths.append(path)
-    for path in sorted(paths):
         if path.suffix != ".json":
             continue
-        if len(records) >= MAX_ITEMS or path.is_symlink() or not path.is_file():
+        if path.is_symlink() or not path.is_file():
             raise ValueError("store needs at most 1000 regular JSON files, without symlinks")
         contents = read_text(path)
         total += len(contents.encode("utf-8"))
         if total > MAX_STORE_BYTES:
             raise ValueError("store exceeds aggregate size limit")
+        files.append((path, contents))
+    return sorted(files)
+
+
+def load_store(directory):
+    records = []
+    for path, contents in _store_files(directory):
         record = parse_json(contents)
         verify_record(record)
-        if path.stem != record["run_id"] or record["run_id"] in seen:
-            raise ValueError("duplicate or mismatched run id")
-        seen.add(record["run_id"])
+        if path.stem != record["run_id"]:
+            raise ValueError("mismatched run id")
         records.append(record)
     return records
 
