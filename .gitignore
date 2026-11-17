@@ -6,3 +6,6 @@ dist/
 .venv/
 .env
 runs/
+tasks/
+captures/
+private/
