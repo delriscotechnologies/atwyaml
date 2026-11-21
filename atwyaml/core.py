@@ -300,6 +300,13 @@ def brief(task, variant):
         for index, rule in enumerate(task[role]):
             lines += [f"- {index}: {markdown(rule['tool'])}; {rule.get('level', 'execution')}; arguments {markdown(dump(rule.get('arguments', {})))}"]
         lines += [""]
+    lines += ["## Import and review", "",
+              "Save your observations as `capture.json` in this prepared directory and run these commands from here.",
+              "Replace `MODEL_NAME` and `MODEL_VERSION` with the deployment labels. Use `unknown` for an undisclosed version.", "",
+              "```text",
+              "atwyaml capture . capture.json --model MODEL_NAME --model-version MODEL_VERSION --store evidence",
+              "atwyaml report evidence", "```", "",
+              "To save the report, add `--out review.md` and choose an unused filename.", ""]
     return "\n".join(lines)
 
 
