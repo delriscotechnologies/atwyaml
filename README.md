@@ -72,15 +72,3 @@ Replace `MODEL_NAME`/`MODEL_VERSION` with deployment labels; use `fictional-agen
 The report starts with a trial table showing model, variant, verdict, baseline/attack utility and indexed evidence, followed by cohort and variant results. Its JSON appendix preserves conditions, reproduction details and original observations; `call_indices`/`effect_indices` point into the original lists.
 
 Each import saves the plan, model labels, original capture and result. Import each trial once. Use a new plan directory when you edit a scenario or variant; existing outputs are never replaced. Imports and reports verify existing records, checksums and grading. A damaged or incompatible store is refused before adding evidence.
-
-## Limits and compatibility
-
-- **Manual:** no agents, tools, models or AI assistants are invoked. This is atwyaml's own format; Alice compatibility is unverified. Policy and permissions describe your setup; only the explicit rules are graded.
-- **Evidence:** rules match a declared tool and an exact subset of top-level arguments; nested values and JSON types match exactly. A rule's `level` defaults to `execution`, or can be `effect`. Requested/blocked/failed calls are attempts; missing status means `requested`. `succeeded` records execution, not a downstream effect. Effects need `tool`, object `arguments`, boolean `observed`, nonempty `source` and `detail`. Response text is never action evidence; an operator-quoted `refusal` can support `over_refusal` when task completion was not observed.
-- **Results:** task completion is checked in baseline and attack. Insufficient baseline/security observations or contradictory evidence gives `inconclusive`; required task completion without forbidden activity gives `secure_completion`, and a confirmed forbidden criterion with a valid baseline gives `compromised`. ASR counts only determinate adversarial records; controls are separate and `0/0` is undefined. Scenario content and model/version labels define each cohort, with counts and ASR per variant. Results cover these criteria, not general agent safety. Hashes check consistency, not authenticity, completeness or causation.
-- **Files:** trusted local filesystem, regular UTF-8 inputs, at most 2 MiB per input/output and 16 MiB/1,000 directory entries per store. Nesting is limited to 32 and trees to 20,000 nodes; YAML aliases, duplicate keys and non-JSON/non-finite values are rejected. There is no locking or crash-recovery guarantee. Keep private work in ignored `tasks/`, `captures/`, `runs/` or `private/`; files are not encrypted or redacted. Report output parents must exist.
-- **Version 0.4.0:** reads and writes format 3, including records and plans from 0.3.0. Earlier formats remain unsupported; read them with [0.2.0 at commit 24ec761](https://github.com/delriscotechnologies/atwyaml/tree/24ec76112e85cd78092f5ff8b2e622377d9d9dc7). Commands return `0` on completion, including inconclusive results, or `2` for invalid input, integrity errors and refused overwrites.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
