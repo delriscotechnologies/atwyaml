@@ -1,4 +1,6 @@
-# atwyaml
+<p align="center">
+  <img src="assets/atwyaml-logo.png" alt="atwyaml logo" width="420">
+</p>
 
 Write YAML scenarios for manual AI red teaming. Prepare the payload you copy into an agent's chat, import your observations and produce an offline review report.
 
