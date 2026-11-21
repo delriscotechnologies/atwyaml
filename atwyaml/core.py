@@ -95,17 +95,10 @@ def fields(value, required, optional=()):
         raise ValueError(f"missing fields: {missing}; unexpected fields: {extra}; expected: {sorted(required)}; optional: {sorted(optional)}")
 
 
-def text(value):
+def text(value, field="text"):
     if type(value) is not str or not value.strip():
-        raise ValueError("expected nonempty text")
+        raise ValueError(f"{field}: expected nonempty text")
     return value
-
-
-def checked_text(value, field):
-    try:
-        return text(value)
-    except ValueError as exc:
-        raise ValueError(f"{field}: {exc}; use a nonempty string") from exc
 
 
 def sealed(value):
@@ -113,7 +106,7 @@ def sealed(value):
 
 
 def verified(value, required):
-    if type(value) is dict and value.get("version") != VERSION:
+    if type(value) is dict and (type(value.get("version")) is not int or value["version"] != VERSION):
         raise ValueError(f"expected format {VERSION}; use atwyaml 0.2.0 for older files")
     fields(value, required | {"version", "sha256"})
     if value["sha256"] != digest({k: v for k, v in value.items() if k != "sha256"}):
@@ -152,26 +145,26 @@ def scenario(source):
     if type(task["version"]) is not int or task["version"] != VERSION:
         raise ValueError("expected scenario format 3; older files are not migrated")
     for key in strings:
-        checked_text(task[key], key)
+        text(task[key], key)
     for key in ("tools", "permissions", "required", "forbidden"):
         if type(task[key]) is not list or not 1 <= len(task[key]) <= 100:
             raise ValueError(f"{key} needs 1..100 entries")
     for key in ("tools", "permissions"):
         for index, value in enumerate(task[key]):
-            checked_text(value, f"{key}[{index}]")
+            text(value, f"{key}[{index}]")
     if len(set(task["tools"])) != len(task["tools"]):
         raise ValueError("tool names must be unique")
     if type(task["variants"]) is not dict or not 1 <= len(task["variants"]) <= 100:
         raise ValueError("variants needs 1..100 named entries")
     for name, variant in task["variants"].items():
-        checked_text(name, "variant name")
+        text(name, "variant name")
         fields(variant, {"kind", "payload"})
-        checked_text(variant["payload"], f"variants.{name}.payload")
+        text(variant["payload"], f"variants.{name}.payload")
         if variant["kind"] not in ("adversarial", "control"):
             raise ValueError("variant kind must be adversarial or control")
     for rule in task["required"] + task["forbidden"]:
         fields(rule, {"tool"}, {"arguments", "level"})
-        checked_text(rule["tool"], "criterion tool")
+        text(rule["tool"], "criterion tool")
         if rule["tool"] not in task["tools"]:
             raise ValueError(f"criterion tool {rule['tool']!r} is not declared in tools")
         if type(rule.get("arguments", {})) is not dict:
@@ -203,7 +196,7 @@ def observations(source):
                 try:
                     allowed = {"arguments", "source", "detail"} | ({"status"} if key == "calls" else {"observed"})
                     fields(entry, {"tool"}, allowed)
-                    checked_text(entry["tool"], "tool")
+                    text(entry["tool"], "tool")
                     if type(entry.get("arguments", {})) is not dict:
                         raise ValueError("arguments must be an object")
                     if key == "calls" and entry.get("status", "requested") not in ("requested", "blocked", "failed", "succeeded"):
@@ -212,7 +205,7 @@ def observations(source):
                         raise ValueError("effects need an observed boolean")
                     for field in ("source", "detail"):
                         if key == "effects" or field in entry:
-                            checked_text(entry.get(field), field)
+                            text(entry.get(field), field)
                 except ValueError as exc:
                     raise ValueError(f"{key}[{index}]: {exc}") from exc
     if "notes" in data and type(data["notes"]) is not str:
@@ -295,9 +288,9 @@ def store_files(directory, reserve=0):
     return sorted(files)
 
 
-def load_store(directory):
+def load_store(directory, reserve=0):
     reviews, groups = [], {}
-    for path, source in store_files(directory):
+    for path, source in store_files(directory, reserve):
         try:
             record = verified(decode(source), {"id", "plan", "model", "capture", "result"})
             if path.name != text(record["id"]) + ".json":
@@ -327,12 +320,10 @@ def capture(directory, source_path, model, model_version, store):
     result = evaluate(task, observations(source))
     record = sealed({"version": VERSION, "id": uuid4().hex, "plan": plan,
                      "model": {"name": text(model), "version": text(model_version)}, "capture": source, "result": result})
-    verified(record, {"id", "plan", "model", "capture", "result"})
     serialized = dump(record)
     decode(serialized)
     Path(store).mkdir(parents=True, exist_ok=True)
-    store_files(store, len(serialized.encode("utf-8")))
-    load_store(store)
+    load_store(store, len(serialized.encode("utf-8")))
     path = Path(store) / (record["id"] + ".json")
     write(path, serialized)
     return {"record": str(path), "verdict": result["verdict"], "reason": result["reason"]}

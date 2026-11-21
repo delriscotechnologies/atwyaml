@@ -1,7 +1,5 @@
 """Four commands for operator-controlled tests; no agent or model execution."""
 import argparse
-from contextlib import contextmanager
-from pathlib import Path
 
 import yaml
 
@@ -35,14 +33,6 @@ forbidden:
 """
 
 
-@contextmanager
-def context(label):
-    try:
-        yield
-    except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
-        raise ValueError(f"{label}: {exc}") from exc
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="atwyaml", description="Prepare manual agent tests and review operator-supplied observations.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -62,33 +52,31 @@ def main(argv=None):
         if name == "report":
             command.add_argument("--out", help="new report file; defaults to stdout")
     args = parser.parse_args(argv)
+    label = args.command
     try:
         if args.command == "init":
-            if Path(args.directory).exists():
-                raise ValueError(f"directory {args.directory}: already exists; choose a new path")
-            with context(f"directory {args.directory}"):
-                core.bundle(args.directory, {"task.yaml": TEMPLATE})
+            label = f"directory {args.directory}"
+            core.bundle(args.directory, {"task.yaml": TEMPLATE})
         elif args.command == "prepare":
-            with context(f"task {args.task}"):
-                plan = core.sealed({"version": core.VERSION, "scenario": core.read(args.task), "variant": args.variant})
-                _, selected = core.selection(plan)
-            with context(f"directory {args.directory}"):
-                core.bundle(args.directory, {"plan.json": core.dump(plan), "payload.txt": selected["payload"]})
+            label = f"task {args.task}"
+            plan = core.sealed({"version": core.VERSION, "scenario": core.read(args.task), "variant": args.variant})
+            _, selected = core.selection(plan)
+            label = f"directory {args.directory}"
+            core.bundle(args.directory, {"plan.json": core.dump(plan), "payload.txt": selected["payload"]})
         elif args.command == "capture":
             label = f"plan {args.directory}; source {args.source}; store {args.store}"
-            with context(label):
-                print(core.dump(core.capture(args.directory, args.source, args.model, args.model_version, args.store)))
+            print(core.dump(core.capture(args.directory, args.source, args.model, args.model_version, args.store)))
         else:
-            with context(f"store {args.store}"):
-                contents = core.report(args.store)
+            label = f"store {args.store}"
+            contents = core.report(args.store)
             if args.out:
-                with context(f"output {args.out}"):
-                    core.write(args.out, contents)
+                label = f"output {args.out}"
+                core.write(args.out, contents)
             else:
                 print(contents, end="")
         return 0
     except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
-        parser.exit(2, f"atwyaml: {exc}\n")
+        parser.exit(2, f"atwyaml: {label}: {exc}\n")
 
 
 if __name__ == "__main__":
