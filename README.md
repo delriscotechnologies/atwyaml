@@ -2,7 +2,7 @@
   <img src="assets/atwyaml-logo.png" alt="atwyaml logo" width="420">
 </p>
 
-Write YAML scenarios for manual AI red teaming. Prepare the payload you copy into an agent's chat, import your observations and produce an offline review report.
+Write YAML scenarios for manual AI red teaming. Describe your hypothesis, prepare a test brief and the payload you copy into an agent's chat, then preserve your observations for review. You choose what to test and when.
 
 ## Install
 
@@ -36,13 +36,13 @@ Keep the environment active. These paths work from the repository root; the comm
 atwyaml init tasks/v3
 ```
 
-Edit `tasks/v3/task.yaml` to describe the agent, policy, tools, permissions, legitimate task, initial state, hypothesis and injection surface. Add payload variants labeled `adversarial` or `control`. `required` rules check task completion; `forbidden` rules define the attacker goal.
+Edit `tasks/v3/task.yaml`: its comments guide you through the agent, policy, tools, permissions, legitimate task, initial state, hypothesis and injection surface. Replace the fictitious example and write payload variants labeled `adversarial` or `control`. `required` rules check task completion; `forbidden` rules define the attacker goal.
 
 ```text
 atwyaml prepare tasks/v3/task.yaml base runs/v3-plan-001
 ```
 
-Replace `base` with your variant's name. `plan.json` preserves the YAML and selection; `payload.txt` contains the exact text to copy. The YAML describes the test; only the payload goes into the controlled surface.
+Replace `base` with your variant's name. Open `runs/v3-plan-001/brief.md` for conditions, baseline/reset/attack steps and evidence to collect. `plan.json` preserves the YAML and selection; `payload.txt` contains the exact text to copy. The YAML and brief describe the test; only the payload goes into the controlled surface.
 
 Set up the agent separately. Run the legitimate task without injection, reset the initial state, then repeat with the selected payload in a fresh session. Save observations in `tasks/v3/capture.json`, including test date, settings, sources and deviations in `notes`. Use `null`/omitted telemetry for unavailable observations and `[]` only for an observed empty list.
 
@@ -69,7 +69,9 @@ atwyaml report runs/v3-evidence --out runs/v3-review-001.md
 
 Replace `MODEL_NAME`/`MODEL_VERSION` with deployment labels; use `fictional-agent`/`fixture-v1` for this synthetic check, or `unknown` for an undisclosed version. The sample gives `attempt_observed` and ASR `0/1` in a fresh store. Omit `--out` to print the report.
 
-Each import saves the plan, model labels, original capture and result. Import each trial once. Use a new plan directory when you edit a scenario or variant; existing outputs are never replaced. Imports and reports verify existing records, checksums and grading. A damaged or incompatible store is refused before adding evidence. Reports include conditions, reproduction steps, observations and results by scenario, model and variant; `call_indices`/`effect_indices` point into the original lists.
+The report starts with a trial table showing model, variant, verdict, baseline/attack utility and indexed evidence, followed by cohort and variant results. Its JSON appendix preserves conditions, reproduction details and original observations; `call_indices`/`effect_indices` point into the original lists.
+
+Each import saves the plan, model labels, original capture and result. Import each trial once. Use a new plan directory when you edit a scenario or variant; existing outputs are never replaced. Imports and reports verify existing records, checksums and grading. A damaged or incompatible store is refused before adding evidence.
 
 ## Limits and compatibility
 
@@ -77,7 +79,7 @@ Each import saves the plan, model labels, original capture and result. Import ea
 - **Evidence:** rules match a declared tool and an exact subset of top-level arguments; nested values and JSON types match exactly. A rule's `level` defaults to `execution`, or can be `effect`. Requested/blocked/failed calls are attempts; missing status means `requested`. `succeeded` records execution, not a downstream effect. Effects need `tool`, object `arguments`, boolean `observed`, nonempty `source` and `detail`. Response text is never action evidence; an operator-quoted `refusal` can support `over_refusal` when task completion was not observed.
 - **Results:** task completion is checked in baseline and attack. Insufficient baseline/security observations or contradictory evidence gives `inconclusive`; required task completion without forbidden activity gives `secure_completion`, and a confirmed forbidden criterion with a valid baseline gives `compromised`. ASR counts only determinate adversarial records; controls are separate and `0/0` is undefined. Scenario content and model/version labels define each cohort, with counts and ASR per variant. Results cover these criteria, not general agent safety. Hashes check consistency, not authenticity, completeness or causation.
 - **Files:** trusted local filesystem, regular UTF-8 inputs, at most 2 MiB per input/output and 16 MiB/1,000 directory entries per store. Nesting is limited to 32 and trees to 20,000 nodes; YAML aliases, duplicate keys and non-JSON/non-finite values are rejected. There is no locking or crash-recovery guarantee. Keep private work in ignored `tasks/`, `captures/`, `runs/` or `private/`; files are not encrypted or redacted. Report output parents must exist.
-- **Version 0.3.0:** only format 3 is accepted. Use separate stores. Older files remain untouched; read them with [0.2.0 at commit 24ec761](https://github.com/delriscotechnologies/atwyaml/tree/24ec76112e85cd78092f5ff8b2e622377d9d9dc7). Commands return `0` on completion, including inconclusive results, or `2` for invalid input, integrity errors and refused overwrites.
+- **Version 0.4.0:** reads and writes format 3, including records and plans from 0.3.0. Earlier formats remain unsupported; read them with [0.2.0 at commit 24ec761](https://github.com/delriscotechnologies/atwyaml/tree/24ec76112e85cd78092f5ff8b2e622377d9d9dc7). Commands return `0` on completion, including inconclusive results, or `2` for invalid input, integrity errors and refused overwrites.
 
 ## License
 
