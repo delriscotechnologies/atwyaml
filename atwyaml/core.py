@@ -60,6 +60,7 @@ def decode(source, yaml_input=False):
             walk(child, depth + 1)
     nodes = 0
     try:
+        # Loader subclasses SafeLoader: aliases and custom tags are rejected above.
         value = yaml.load(source, Loader=Loader) if yaml_input else json.loads(source, object_pairs_hook=pairs)
         walk(value)
     except RecursionError as exc:
@@ -86,13 +87,17 @@ def digest(value):
 
 
 def fields(value, required, optional=()):
-    if type(value) is not dict or not required <= value.keys() or value.keys() - required - set(optional):
-        raise ValueError(f"expected fields: {sorted(required)}; optional: {sorted(optional)}")
+    if type(value) is not dict:
+        raise ValueError(f"expected object; got {type(value).__name__}")
+    missing = sorted(required - value.keys())
+    extra = sorted(value.keys() - required - set(optional))
+    if missing or extra:
+        raise ValueError(f"missing fields: {missing}; unexpected fields: {extra}; expected: {sorted(required)}; optional: {sorted(optional)}")
 
 
-def text(value):
+def text(value, field="text"):
     if type(value) is not str or not value.strip():
-        raise ValueError("expected nonempty text")
+        raise ValueError(f"{field}: expected nonempty text")
     return value
 
 
@@ -101,9 +106,9 @@ def sealed(value):
 
 
 def verified(value, required):
+    if type(value) is dict and (type(value.get("version")) is not int or value["version"] != VERSION):
+        raise ValueError(f"expected format {VERSION}; use atwyaml 0.2.0 for older files")
     fields(value, required | {"version", "sha256"})
-    if type(value["version"]) is not int or value["version"] != VERSION:
-        raise ValueError("expected format 3; use atwyaml 0.2.0 for older files")
     if value["sha256"] != digest({k: v for k, v in value.items() if k != "sha256"}):
         raise ValueError("content checksum mismatch")
     return value
@@ -140,26 +145,30 @@ def scenario(source):
     if type(task["version"]) is not int or task["version"] != VERSION:
         raise ValueError("expected scenario format 3; older files are not migrated")
     for key in strings:
-        text(task[key])
+        text(task[key], key)
     for key in ("tools", "permissions", "required", "forbidden"):
         if type(task[key]) is not list or not 1 <= len(task[key]) <= 100:
             raise ValueError(f"{key} needs 1..100 entries")
-    for value in task["tools"] + task["permissions"]:
-        text(value)
+    for key in ("tools", "permissions"):
+        for index, value in enumerate(task[key]):
+            text(value, f"{key}[{index}]")
     if len(set(task["tools"])) != len(task["tools"]):
         raise ValueError("tool names must be unique")
     if type(task["variants"]) is not dict or not 1 <= len(task["variants"]) <= 100:
         raise ValueError("variants needs 1..100 named entries")
     for name, variant in task["variants"].items():
-        text(name)
+        text(name, "variant name")
         fields(variant, {"kind", "payload"})
-        text(variant["payload"])
+        text(variant["payload"], f"variants.{name}.payload")
         if variant["kind"] not in ("adversarial", "control"):
             raise ValueError("variant kind must be adversarial or control")
     for rule in task["required"] + task["forbidden"]:
         fields(rule, {"tool"}, {"arguments", "level"})
-        if rule["tool"] not in task["tools"] or type(rule.get("arguments", {})) is not dict:
-            raise ValueError("criterion needs a declared tool and object arguments")
+        text(rule["tool"], "criterion tool")
+        if rule["tool"] not in task["tools"]:
+            raise ValueError(f"criterion tool {rule['tool']!r} is not declared in tools")
+        if type(rule.get("arguments", {})) is not dict:
+            raise ValueError("criterion arguments must be an object")
         if rule.get("level", "execution") not in ("execution", "effect"):
             raise ValueError("criterion level must be execution or effect")
     return task
@@ -183,20 +192,22 @@ def observations(source):
                 continue
             if type(entries) is not list or len(entries) > MAX_ITEMS:
                 raise ValueError("calls/effects must be lists of at most 1000 entries or null")
-            for entry in entries:
-                allowed = {"arguments", "source", "detail"} | ({"status"} if key == "calls" else {"observed"})
-                fields(entry, {"tool"}, allowed)
-                text(entry["tool"])
-                if type(entry.get("arguments", {})) is not dict:
-                    raise ValueError("arguments must be an object")
-                if key == "calls" and entry.get("status", "requested") not in ("requested", "blocked", "failed", "succeeded"):
-                    raise ValueError("invalid call status")
-                if key == "effects":
-                    if type(entry.get("observed")) is not bool:
+            for index, entry in enumerate(entries):
+                try:
+                    allowed = {"arguments", "source", "detail"} | ({"status"} if key == "calls" else {"observed"})
+                    fields(entry, {"tool"}, allowed)
+                    text(entry["tool"], "tool")
+                    if type(entry.get("arguments", {})) is not dict:
+                        raise ValueError("arguments must be an object")
+                    if key == "calls" and entry.get("status", "requested") not in ("requested", "blocked", "failed", "succeeded"):
+                        raise ValueError("invalid call status")
+                    if key == "effects" and type(entry.get("observed")) is not bool:
                         raise ValueError("effects need an observed boolean")
-                for field in ("source", "detail"):
-                    if key == "effects" or field in entry:
-                        text(entry.get(field))
+                    for field in ("source", "detail"):
+                        if key == "effects" or field in entry:
+                            text(entry.get(field), field)
+                except ValueError as exc:
+                    raise ValueError(f"{key}[{index}]: {exc}") from exc
     if "notes" in data and type(data["notes"]) is not str:
         raise ValueError("capture notes must be text")
     return data
@@ -256,7 +267,7 @@ def selection(plan):
     task = scenario(text(plan["scenario"]))
     name = text(plan["variant"])
     if name not in task["variants"]:
-        raise ValueError("unknown variant")
+        raise ValueError(f"unknown variant {name!r}; choose one of {sorted(task['variants'])}")
     return task, task["variants"][name]
 
 
@@ -277,6 +288,29 @@ def store_files(directory, reserve=0):
     return sorted(files)
 
 
+def load_store(directory, reserve=0):
+    reviews, groups = [], {}
+    for path, source in store_files(directory, reserve):
+        try:
+            record = verified(decode(source), {"id", "plan", "model", "capture", "result"})
+            if path.name != text(record["id"]) + ".json":
+                raise ValueError("record filename does not match its id")
+            fields(record["model"], {"name", "version"})
+            model = [text(record["model"][key]) for key in ("name", "version")]
+            task, selected = selection(record["plan"])
+            data = observations(record["capture"])
+            result = evaluate(task, data)
+            if dump(result) != dump(record["result"]):
+                raise ValueError("stored evaluation does not reproduce")
+        except (ValueError, TypeError, yaml.YAMLError) as exc:
+            raise ValueError(f"record {path}: {exc}") from exc
+        key = (digest(record["plan"]["scenario"]), *model)
+        groups.setdefault(key, []).append((selected["kind"], record["plan"]["variant"], result))
+        reviews.append({"id": record["id"], "sha256": record["sha256"], "model": record["model"], "scenario": task,
+                        "variant": record["plan"]["variant"], "capture": data, "result": result})
+    return reviews, groups
+
+
 def capture(directory, source_path, model, model_version, store):
     plan = decode(read(Path(directory) / "plan.json"))
     task, selected = selection(plan)
@@ -289,36 +323,28 @@ def capture(directory, source_path, model, model_version, store):
     serialized = dump(record)
     decode(serialized)
     Path(store).mkdir(parents=True, exist_ok=True)
-    store_files(store, len(serialized.encode("utf-8")))
+    load_store(store, len(serialized.encode("utf-8")))
     path = Path(store) / (record["id"] + ".json")
     write(path, serialized)
     return {"record": str(path), "verdict": result["verdict"], "reason": result["reason"]}
 
 
 def report(directory):
-    reviews, groups = [], {}
-    for path, source in store_files(directory):
-        record = verified(decode(source), {"id", "plan", "model", "capture", "result"})
-        if path.name != text(record["id"]) + ".json":
-            raise ValueError("record filename does not match its id")
-        fields(record["model"], {"name", "version"})
-        model = [text(record["model"][key]) for key in ("name", "version")]
-        task, selected = selection(record["plan"])
-        data = observations(record["capture"])
-        result = evaluate(task, data)
-        if dump(result) != dump(record["result"]):
-            raise ValueError("stored evaluation does not reproduce")
-        key = (digest(record["plan"]["scenario"]), *model)
-        groups.setdefault(key, []).append((selected["kind"], result))
-        reviews.append({"id": record["id"], "sha256": record["sha256"], "model": record["model"], "scenario": task,
-                        "variant": record["plan"]["variant"], "capture": data, "result": result})
+    reviews, groups = load_store(directory)
     summaries = []
     for key, entries in groups.items():
-        eligible = [r for kind, r in entries if kind == "adversarial" and r["verdict"] != "inconclusive"]
+        eligible = [r for kind, _, r in entries if kind == "adversarial" and r["verdict"] != "inconclusive"]
+        variants = []
+        for name in sorted({variant for _, variant, _ in entries}):
+            rows = [(kind, r) for kind, variant, r in entries if variant == name]
+            allowed = [r for kind, r in rows if kind == "adversarial" and r["verdict"] != "inconclusive"]
+            variants.append({"variant": name, "kind": rows[0][0], "verdicts": dict(Counter(r["verdict"] for _, r in rows)),
+                             "asr": f"{sum(r['verdict'] == 'compromised' for r in allowed)}/{len(allowed)}"})
         summaries.append({"scenario_sha256": key[0], "model": key[1], "model_version": key[2],
-                          "verdicts": dict(Counter(r["verdict"] for _, r in entries)),
-                          "controls": dict(Counter(r["verdict"] for kind, r in entries if kind == "control")),
-                          "asr": f"{sum(r['verdict'] == 'compromised' for r in eligible)}/{len(eligible)}"})
+                          "verdicts": dict(Counter(r["verdict"] for _, _, r in entries)),
+                          "controls": dict(Counter(r["verdict"] for kind, _, r in entries if kind == "control")),
+                          "asr": f"{sum(r['verdict'] == 'compromised' for r in eligible)}/{len(eligible)}",
+                          "variants": variants})
     content = {"cohorts": summaries, "trials": reviews}
     output = ("# Manual review\n\nOperator-supplied observations; hashes check consistency, not authenticity or causation.\n\n"
             "Reproduce: configure the recorded agent, policy, tools and permissions. Restore initial_state; run legitimate_task without injection. "

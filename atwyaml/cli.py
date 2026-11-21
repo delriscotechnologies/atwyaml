@@ -52,24 +52,31 @@ def main(argv=None):
         if name == "report":
             command.add_argument("--out", help="new report file; defaults to stdout")
     args = parser.parse_args(argv)
+    label = args.command
     try:
         if args.command == "init":
+            label = f"directory {args.directory}"
             core.bundle(args.directory, {"task.yaml": TEMPLATE})
         elif args.command == "prepare":
+            label = f"task {args.task}"
             plan = core.sealed({"version": core.VERSION, "scenario": core.read(args.task), "variant": args.variant})
             _, selected = core.selection(plan)
+            label = f"directory {args.directory}"
             core.bundle(args.directory, {"plan.json": core.dump(plan), "payload.txt": selected["payload"]})
         elif args.command == "capture":
+            label = f"plan {args.directory}; source {args.source}; store {args.store}"
             print(core.dump(core.capture(args.directory, args.source, args.model, args.model_version, args.store)))
         else:
+            label = f"store {args.store}"
             contents = core.report(args.store)
             if args.out:
+                label = f"output {args.out}"
                 core.write(args.out, contents)
             else:
                 print(contents, end="")
         return 0
     except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
-        parser.exit(2, f"atwyaml: {exc}\n")
+        parser.exit(2, f"atwyaml: {label}: {exc}\n")
 
 
 if __name__ == "__main__":
